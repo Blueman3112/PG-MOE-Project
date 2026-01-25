@@ -73,55 +73,63 @@ class GatingRouter(nn.Module):
         return F.softmax(self.layer(class_token), dim=-1)
 
 class PGMoE(nn.Module):
-    """PG-MoE 完整模型架构"""
-    def __init__(self, model_name='ViT-L-14', pretrained='laion2b_s32b_b82k'):
+    """PG-MoE 完整模型架构 (使用 Forward Hook)"""
+    def __init__(self, model_name='ViT-L-14', pretrained='../pretrained_models/open_clip_pytorch_model.bin'):
         super().__init__()
         
-        # 1. 加载并冻结 CLIP 骨干网络
         print("正在加载 CLIP 模型...")
         self.clip, _, _ = open_clip.create_model_and_transforms(model_name, pretrained=pretrained)
         for param in self.clip.parameters():
-            param.requires_grad = False # 冻结参数
+            param.requires_grad = False
         print("CLIP 模型加载并冻结完毕。")
 
-        # 获取 CLIP 输出的特征维度
-        clip_dim = self.clip.visual.ln_post.normalized_shape[0]
+        # --- START: 关键修正 - 区分内部维度和输出维度 ---
+        # 1. 最终输出维度 (降维后，用于 class_token)
+        try:
+            output_clip_dim = self.clip.visual.output_dim
+        except AttributeError:
+            # 备用方案，但根据之前的报错，output_dim 应该是 768
+            output_clip_dim = 768 
+        print(f"检测到 CLIP 模型【最终输出】维度为: {output_clip_dim}")
 
-        # 2. 初始化双流物理专家
-        self.spatial_expert = SpatialAdapter(input_dim=clip_dim, output_dim=512)
-        self.frequency_expert = FrequencyAdapter(input_dim=clip_dim, output_dim=512)
+        # 2. 内部工作维度 (Transformer 内部，用于 patch_tokens)
+        # 我们可以从ln_pre (进入Transformer前的LayerNorm) 或 conv1 (第一个卷积层) 获取
+        internal_clip_dim = self.clip.visual.ln_pre.normalized_shape[0]
+        print(f"检测到 CLIP 模型【内部工作】维度为: {internal_clip_dim}")
+        # --- END: 关键修正 ---
+
+        # 初始化专家，使用【内部工作维度】
+        self.spatial_expert = SpatialAdapter(input_dim=internal_clip_dim, output_dim=512)
+        self.frequency_expert = FrequencyAdapter(input_dim=internal_clip_dim, output_dim=512)
         
-        # 3. 初始化门控路由
-        self.router = GatingRouter(input_dim=clip_dim, num_experts=2)
+        # 初始化门控路由，使用【最终输出维度】
+        self.router = GatingRouter(input_dim=output_clip_dim, num_experts=2)
         
-        # 4. 初始化最终的分类器
-        self.classifier = nn.Linear(512, 1) # 输出一个 Logit 用于二分类
+        # 初始化最终的分类器
+        self.classifier = nn.Linear(512, 1)
+
+        self.captured_tokens = None
+        self.clip.visual.transformer.register_forward_hook(self._capture_tokens_hook)
+
+    def _capture_tokens_hook(self, module, input, output):
+        self.captured_tokens = input[0]
 
     def forward(self, image):
-        # 1. 从 CLIP 提取特征
-        # 使用 internal_features=True 来获取中间层的 patch tokens
-        image_features, internal_features = self.clip.visual(image, internal_features=True)
-        # 形状: [B, 257, 1024] (对于 ViT-L/14)
-        patch_tokens = internal_features['trunk_pre_norm'] 
-        # [class] token 就是 CLIP 的最终图像输出
-        # 形状: [B, 1024]
-        class_token = image_features 
+        class_token = self.clip.visual(image)
+        patch_tokens = self.captured_tokens
+        
+        if patch_tokens is None:
+            raise RuntimeError("Forward hook did not capture the patch tokens.")
 
-        # 2. 将特征送入各个专家
         F_s = self.spatial_expert(patch_tokens)
         F_f = self.frequency_expert(patch_tokens)
         
-        # 3. 计算专家权重
-        weights = self.router(class_token) # 形状: [B, 2]
+        weights = self.router(class_token)
         w_s, w_f = weights[:, 0].unsqueeze(1), weights[:, 1].unsqueeze(1)
         
-        # 4. 加权融合专家特征
         fused_feature = w_s * F_s + w_f * F_f
-        
-        # 5. 通过分类器得到最终输出
         logits = self.classifier(fused_feature)
         
-        # 返回一个字典，方便在计算损失时清晰地获取各个部分
         return {
             "logits": logits,
             "F_s": F_s,
