@@ -20,7 +20,7 @@ results/
 
 # 仅保留pretrained_models目录
 pretrained_models/*
-!pretrained_models/'单独下载CLIP模型.txt'
+!pretrained_models/单独下载CLIP模型.txt
 
 # 忽略 Python 缓存文件
 __pycache__/
