@@ -5,6 +5,8 @@ from tqdm import tqdm
 import numpy as np
 from sklearn.metrics import roc_auc_score, accuracy_score
 import os
+import time  # 添加时间模块
+from datetime import datetime  # 添加日期时间模块
 
 # 从我们自己的模块中导入
 from dataset import create_dataloaders
@@ -14,7 +16,7 @@ from loss import OrthogonalLoss
 def run():
     # --- 1. 超参数与配置 ---
     DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-    DATASET_PATH = "../datasets/dataset-A"
+    DATASET_PATH = "../datasets/dataset-B"
     BATCH_SIZE = 32
     LEARNING_RATE = 1e-4
     EPOCHS = 20
@@ -43,7 +45,9 @@ def run():
     best_val_auc = 0.0
 
     for epoch in range(EPOCHS):
-        print(f"\n--- Epoch {epoch+1}/{EPOCHS} ---")
+        epoch_start_time = time.time()  # 记录epoch开始时间
+        start_timestamp = datetime.now().strftime("[%Y-%m-%d %H:%M:%S]")  # 获取当前时间戳
+        print(f"{start_timestamp} Epoch {epoch+1}/{EPOCHS}")  # 打印epoch开始时间戳
         
         # --- 训练阶段 ---
         model.train()
@@ -91,9 +95,21 @@ def run():
         # --- 保存最佳模型 ---
         if val_auc > best_val_auc:
             best_val_auc = val_auc
-            model_save_name = f"pg_moe_v1_best_auc_{best_val_auc:.4f}.pth"
-            torch.save(model.state_dict(), os.path.join(BEST_MODEL_SAVE_PATH, model_save_name))
+            model_save_name = f"best_model_epoch{epoch+1}_auc{best_val_auc:.4f}.pth"
+            model_save_path = os.path.join(BEST_MODEL_SAVE_PATH, model_save_name)
+
+            # 删除之前的最佳模型文件
+            previous_best_models = [f for f in os.listdir(BEST_MODEL_SAVE_PATH) if f.startswith("best_model") and f.endswith(".pth")]
+            for old_model in previous_best_models:
+                os.remove(os.path.join(BEST_MODEL_SAVE_PATH, old_model))
+
+            # 保存当前最佳模型
+            torch.save(model.state_dict(), model_save_path)
             print(f"发现更优模型 (AUC: {best_val_auc:.4f})，已保存至 {model_save_name}")
+
+        epoch_end_time = time.time()  # 记录epoch结束时间
+        epoch_duration = epoch_end_time - epoch_start_time
+        print(f"Epoch {epoch+1} 用时: {epoch_duration:.2f} 秒")  # 打印epoch用时
 
     print("\n--- 所有训练轮次结束 ---")
 

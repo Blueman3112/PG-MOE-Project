@@ -24,7 +24,7 @@ pretrained_models/*
 !pretrained_models/单独下载CLIP模型.txt
 
 # 忽略code目录下的日志文件
-code/*-log.txt
+code/*.txt
 
 # 忽略 Python 缓存文件
 __pycache__/
