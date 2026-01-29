@@ -133,5 +133,6 @@ class PGMoE(nn.Module):
         return {
             "logits": logits,
             "F_s": F_s,
-            "F_f": F_f
+            "F_f": F_f,
+            "weights": weights # 返回专家权重，用于分析
         }

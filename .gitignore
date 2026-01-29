@@ -19,6 +19,13 @@ datasets/*
 # 忽略所有训练结果和模型
 results/
 
+# 忽略大文件
+*.bin
+*.pth
+*.tar.gz
+*.zip
+*.zst
+
 # 仅保留pretrained_models目录
 pretrained_models/*
 !pretrained_models/单独下载CLIP模型.txt
