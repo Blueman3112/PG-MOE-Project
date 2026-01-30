@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import open_clip
+import os
 
 class SpatialAdapter(nn.Module):
     """空间感知专家"""
@@ -78,9 +79,21 @@ class PGMoE(nn.Module):
         super().__init__()
         
         print("正在加载 CLIP 模型...")
-        # 修改为自动下载，方便用户在本地运行
-        # 如果用户本地有网络，open_clip 会自动处理
-        self.clip, _, _ = open_clip.create_model_and_transforms(model_name, pretrained='openai' if pretrained is None else pretrained)
+        
+        # 1. 优先尝试加载本地预训练权重
+        local_clip_path = "../pretrained_models/open_clip_pytorch_model.bin"
+        
+        if os.path.exists(local_clip_path):
+            print(f"检测到本地 CLIP 权重: {local_clip_path}")
+            # 如果本地文件存在，直接使用路径加载
+            self.clip, _, _ = open_clip.create_model_and_transforms(model_name, pretrained=local_clip_path)
+        else:
+            print("未找到本地 CLIP 权重，尝试从 HuggingFace 下载...")
+            # 2. 如果本地不存在，则尝试下载 (pretrained='openai')
+            # 如果传入了特定的 pretrained 参数，则使用传入的，否则使用 'openai'
+            pretrained_source = pretrained if pretrained is not None else 'openai'
+            self.clip, _, _ = open_clip.create_model_and_transforms(model_name, pretrained=pretrained_source)
+            
         for param in self.clip.parameters():
             param.requires_grad = False
         print("CLIP 模型加载并冻结完毕。")

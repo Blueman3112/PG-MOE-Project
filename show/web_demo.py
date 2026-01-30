@@ -154,5 +154,14 @@ def create_demo():
 if __name__ == "__main__":
     print("正在启动 Web 服务...")
     # 启用 share=True 以允许外部访问 (如果运行在云端或 Colab)
-    demo = create_demo()
-    demo.launch(server_name="0.0.0.0", share=True, inbrowser=True)
+    # 注意：如果服务器无法访问 HuggingFace CDN，share=True 可能会导致 frpc 下载失败
+    # 建议在受限网络环境下设为 False，并使用 SSH 端口转发访问
+    SHARE_MODE = False 
+    
+    try:
+        demo = create_demo()
+        demo.launch(server_name="0.0.0.0", share=SHARE_MODE, inbrowser=True)
+    except KeyboardInterrupt:
+        print("服务已停止")
+    except Exception as e:
+        print(f"启动失败: {e}")
