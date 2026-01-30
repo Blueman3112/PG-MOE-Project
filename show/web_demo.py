@@ -112,11 +112,13 @@ def inference(image, model_path):
             prob_fake = 1.0 - prob
             
             # 结果逻辑 (0=Fake, 1=Real)
-            # 输出给 Gradio 的 Label 字典
-            confidences = {"Real (真实)": prob_real, "Fake (伪造)": prob_fake}
+            # 使用 Textbox 直接显示文本结果，规避 Label 组件刷新问题
+            result_text = f"检测结果: {'✅ 真 (Real)' if prob_real > 0.5 else '⚠️ 假 (Fake)'}\n" \
+                          f"真实概率: {prob_real:.2%}\n" \
+                          f"伪造概率: {prob_fake:.2%}"
             
             # --- DEBUG LOG START ---
-            print(f"DEBUG: Returning Confidences: {confidences}")
+            print(f"DEBUG: Returning Text: {result_text}")
             # --- DEBUG LOG END ---
             
             # 专家分析文本
@@ -131,7 +133,7 @@ def inference(image, model_path):
                     f"*{'模型更关注局部纹理异常' if w_spatial > w_freq else '模型更关注频域周期性伪影'}*"
                 )
             
-            return confidences, expert_analysis, "检测成功"
+            return result_text, expert_analysis, "检测成功"
             
     except Exception as e:
         import traceback
@@ -162,7 +164,8 @@ def create_demo():
                 submit_btn = gr.Button("开始检测", variant="primary", size="lg")
                 
             with gr.Column(scale=1):
-                output_label = gr.Label(label="检测结果", num_top_classes=2)
+                # output_label = gr.Label(label="检测结果", num_top_classes=2)
+                output_label = gr.Textbox(label="检测结果", lines=3) # 改用 Textbox
                 output_expert = gr.Markdown(label="专家分析")
                 status_text = gr.Textbox(label="系统状态", value="就绪", interactive=False)
                 
