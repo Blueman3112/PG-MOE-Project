@@ -115,6 +115,10 @@ def inference(image, model_path):
             # 输出给 Gradio 的 Label 字典
             confidences = {"Real (真实)": prob_real, "Fake (伪造)": prob_fake}
             
+            # --- DEBUG LOG START ---
+            print(f"DEBUG: Returning Confidences: {confidences}")
+            # --- DEBUG LOG END ---
+            
             # 专家分析文本
             expert_analysis = ""
             if weights is not None:
