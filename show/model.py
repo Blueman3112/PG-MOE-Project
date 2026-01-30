@@ -127,15 +127,22 @@ class PGMoE(nn.Module):
         self.clip.visual.transformer.register_forward_hook(self._capture_tokens_hook)
 
     def _capture_tokens_hook(self, module, input, output):
+        # print("DEBUG: Hook triggered!") 
         self.captured_tokens = input[0]
 
     def forward(self, image):
+        # 1. 显式清空旧的 Token，防止残留
+        self.captured_tokens = None
+        
         class_token = self.clip.visual(image)
         patch_tokens = self.captured_tokens
         
         if patch_tokens is None:
-            raise RuntimeError("Forward hook did not capture the patch tokens.")
+            raise RuntimeError("Forward hook did not capture the patch tokens. Hook may not be registered correctly or CLIP forward logic skipped it.")
 
+        # 2. 立即清空，避免下次干扰 (可选，但为了安全起见)
+        # self.captured_tokens = None 
+        
         F_s = self.spatial_expert(patch_tokens)
         F_f = self.frequency_expert(patch_tokens)
         
