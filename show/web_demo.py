@@ -83,10 +83,29 @@ def inference(image, model_path):
     try:
         image_tensor = transform(image).unsqueeze(0).to(DEVICE)
         
+        # --- DEBUG LOG START ---
+        print("\n" + "="*30)
+        print(f"DEBUG: Processing Image...")
+        # 1. 打印输入图片的统计特征 (均值/方差)，验证输入是否改变
+        img_mean = image_tensor.mean().item()
+        img_std = image_tensor.std().item()
+        print(f"DEBUG: Input Image Tensor - Mean: {img_mean:.6f}, Std: {img_std:.6f}")
+        # --- DEBUG LOG END ---
+        
         with torch.no_grad():
             outputs = model(image_tensor)
             logits = outputs['logits']
             weights = outputs.get('weights', None)
+            
+            # --- DEBUG LOG START ---
+            logit_val = logits.item()
+            print(f"DEBUG: Output Logits: {logit_val:.6f}")
+            if weights is not None:
+                w_s = weights[0, 0].item()
+                w_f = weights[0, 1].item()
+                print(f"DEBUG: Expert Weights - Spatial: {w_s:.6f}, Freq: {w_f:.6f}")
+            print("="*30 + "\n")
+            # --- DEBUG LOG END ---
             
             prob = torch.sigmoid(logits).item()
             prob_real = prob
