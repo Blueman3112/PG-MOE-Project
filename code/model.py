@@ -74,7 +74,7 @@ class GatingRouter(nn.Module):
 
 class PGMoE(nn.Module):
     """PG-MoE 完整模型架构 (使用 Forward Hook)"""
-    def __init__(self, model_name='ViT-L-14', pretrained='../pretrained_models/open_clip_pytorch_model.bin'):
+    def __init__(self, model_name='ViT-L-14', pretrained='./pretrained_models/open_clip_pytorch_model.bin'):
         super().__init__()
         
         print("正在加载 CLIP 模型...")

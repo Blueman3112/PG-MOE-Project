@@ -1,55 +1,135 @@
 # code/train.py
 
 import torch
+import time
+import datetime
+import logging
+import csv
+import shutil
+import sys
+import os
 from tqdm import tqdm
 import numpy as np
-from sklearn.metrics import roc_auc_score, accuracy_score
-import os
+from sklearn.metrics import roc_auc_score, accuracy_score, f1_score, precision_score, recall_score
 
 # 从我们自己的模块中导入
 from dataset import create_dataloaders
 from model import PGMoE
 from loss import OrthogonalLoss
 
+def setup_logging(log_file):
+    """配置日志，同时输出到控制台和文件"""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        handlers=[
+            logging.FileHandler(log_file),
+            logging.StreamHandler(sys.stdout)
+        ]
+    )
+
+def calculate_metrics(labels, preds_prob):
+    """计算二分类的各种指标"""
+    preds_binary = np.round(preds_prob)
+    
+    auc = roc_auc_score(labels, preds_prob)
+    acc = accuracy_score(labels, preds_binary)
+    f1 = f1_score(labels, preds_binary, zero_division=0)
+    precision = precision_score(labels, preds_binary, zero_division=0)
+    recall = recall_score(labels, preds_binary, zero_division=0)
+    
+    return {
+        "auc": auc,
+        "acc": acc,
+        "f1": f1,
+        "precision": precision,
+        "recall": recall
+    }
+
 def run():
-    # --- 1. 超参数与配置 ---
+    # --- 0. 基础配置与目录初始化 ---
+    start_time = time.time()
+    
+    # 超参数
     DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-    DATASET_PATH = "../datasets/dataset-A"
+    DATASET_ROOT = "./datasets"
+    DATASET_NAME = "dataset-A" # 默认数据集名称，可修改
+    DATASET_PATH = os.path.join(DATASET_ROOT, DATASET_NAME)
+    
     BATCH_SIZE = 32
     LEARNING_RATE = 1e-4
     EPOCHS = 20
-    LAMBDA_ORTH = 0.05 # 正交损失的权重超参数
-    NUM_WORKERS = 4 # 如果你的机器支持多线程，可以设为 4 或 8
+    # EPOCHS = 30 # 增加到30轮
+    LAMBDA_ORTH = 0.05
+    NUM_WORKERS = 4
     
-    BEST_MODEL_SAVE_PATH = "../results" # 模型保存的文件夹
-    if not os.path.exists(BEST_MODEL_SAVE_PATH):
-        os.makedirs(BEST_MODEL_SAVE_PATH)
+    # 获取当前日期和时间，生成唯一ID
+    now = datetime.datetime.now()
+    date_str = now.strftime("%m-%d")
+    time_str = now.strftime("%H%M%S")
+    run_id = f"{date_str}-{time_str}"
     
-    print(f"使用设备: {DEVICE}")
+    # 初始结果目录 (临时名称，最后会重命名)
+    # 格式: results/Temp_Dataset-A_03-15-120000
+    RESULTS_ROOT = "./results"
+    if not os.path.exists(RESULTS_ROOT):
+        os.makedirs(RESULTS_ROOT)
+        
+    temp_folder_name = f"Temp_{DATASET_NAME}_{run_id}"
+    OUTPUT_DIR = os.path.join(RESULTS_ROOT, temp_folder_name)
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    
+    # 设置日志
+    log_file = os.path.join(OUTPUT_DIR, "train.log")
+    setup_logging(log_file)
+    logging.info(f"--- 开始训练任务: {run_id} ---")
+    logging.info(f"使用设备: {DEVICE}")
+    logging.info(f"结果输出目录: {OUTPUT_DIR}")
 
-    # --- 2. 准备数据、模型、损失函数、优化器 ---
+    # --- 1. 数据准备 ---
+    if not os.path.exists(DATASET_PATH):
+        logging.error(f"数据集路径不存在: {DATASET_PATH}")
+        logging.error("请确保数据集已解压并在正确位置。")
+        return
+
+    logging.info(f"加载数据集: {DATASET_PATH}")
     train_loader, val_loader, test_loader = create_dataloaders(DATASET_PATH, BATCH_SIZE, NUM_WORKERS)
+    
+    # --- 2. 模型与优化器 ---
     model = PGMoE().to(DEVICE)
     criterion = OrthogonalLoss(lambda_orth=LAMBDA_ORTH)
 
-    # 关键：只将需要训练的参数传给优化器
     params_to_train = list(model.spatial_expert.parameters()) + \
                       list(model.frequency_expert.parameters()) + \
                       list(model.router.parameters()) + \
                       list(model.classifier.parameters())
     optimizer = torch.optim.AdamW(params_to_train, lr=LEARNING_RATE)
 
-    # --- 3. 训练与验证循环 ---
+    # --- 3. 训练循环 ---
     best_val_auc = 0.0
+    best_val_acc = 0.0
+    best_epoch = 0
+    
+    # CSV 记录文件
+    csv_file = os.path.join(OUTPUT_DIR, "training_metrics.csv")
+    csv_headers = ["epoch", "train_loss", "train_bce", "train_orth", 
+                   "val_loss", "val_acc", "val_auc", "val_f1", "val_precision", "val_recall", "inference_fps"]
+    
+    with open(csv_file, mode='w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(csv_headers)
 
+    logging.info("开始训练...")
+    
     for epoch in range(EPOCHS):
-        print(f"\n--- Epoch {epoch+1}/{EPOCHS} ---")
+        epoch_start_time = time.time()
+        logging.info(f"\n--- Epoch {epoch+1}/{EPOCHS} ---")
         
         # --- 训练阶段 ---
         model.train()
         train_loss_total, train_loss_bce, train_loss_orth = 0, 0, 0
         
-        for images, labels in tqdm(train_loader, desc="训练中"):
+        for images, labels in tqdm(train_loader, desc=f"Epoch {epoch+1} Train"):
             images, labels = images.to(DEVICE), labels.to(DEVICE)
             
             optimizer.zero_grad()
@@ -65,15 +145,16 @@ def run():
         avg_train_loss = train_loss_total / len(train_loader)
         avg_train_bce = train_loss_bce / len(train_loader)
         avg_train_orth = train_loss_orth / len(train_loader)
-        print(f"训练损失 -> 总计: {avg_train_loss:.4f}, BCE: {avg_train_bce:.4f}, Orth: {avg_train_orth:.4f}")
+        logging.info(f"Train Loss -> Total: {avg_train_loss:.4f}, BCE: {avg_train_bce:.4f}, Orth: {avg_train_orth:.4f}")
 
         # --- 验证阶段 ---
         model.eval()
         val_loss_total = 0
         all_preds, all_labels = [], []
         
+        val_start_time = time.time()
         with torch.no_grad():
-            for images, labels in tqdm(val_loader, desc="验证中"):
+            for images, labels in tqdm(val_loader, desc=f"Epoch {epoch+1} Val"):
                 images, labels = images.to(DEVICE), labels.to(DEVICE)
                 outputs = model(images)
                 loss, _, _ = criterion(outputs, labels)
@@ -83,45 +164,116 @@ def run():
                 all_preds.extend(preds)
                 all_labels.extend(labels.cpu().numpy())
         
+        val_end_time = time.time()
+        
+        # 计算验证指标
         avg_val_loss = val_loss_total / len(val_loader)
-        val_auc = roc_auc_score(all_labels, all_preds)
-        val_accuracy = accuracy_score(all_labels, np.round(all_preds))
-        print(f"验证损失 -> 总计: {avg_val_loss:.4f} | 验证集 Acc: {val_accuracy:.4f}, AUC: {val_auc:.4f}")
+        val_metrics = calculate_metrics(np.array(all_labels), np.array(all_preds))
+        
+        # 计算推理速度 (FPS) - 基于验证集
+        num_val_images = len(val_loader.dataset)
+        inference_time = val_end_time - val_start_time
+        fps = num_val_images / inference_time if inference_time > 0 else 0
+        
+        logging.info(f"Val Loss: {avg_val_loss:.4f} | FPS: {fps:.2f}")
+        logging.info(f"Val Metrics -> AUC: {val_metrics['auc']:.4f}, Acc: {val_metrics['acc']:.4f}, F1: {val_metrics['f1']:.4f}")
+
+        # 写入 CSV
+        with open(csv_file, mode='a', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                epoch + 1, 
+                f"{avg_train_loss:.4f}", f"{avg_train_bce:.4f}", f"{avg_train_orth:.4f}",
+                f"{avg_val_loss:.4f}", 
+                f"{val_metrics['acc']:.4f}", f"{val_metrics['auc']:.4f}", f"{val_metrics['f1']:.4f}", 
+                f"{val_metrics['precision']:.4f}", f"{val_metrics['recall']:.4f}",
+                f"{fps:.2f}"
+            ])
 
         # --- 保存最佳模型 ---
-        if val_auc > best_val_auc:
-            best_val_auc = val_auc
-            model_save_name = f"pg_moe_v1_best_auc_{best_val_auc:.4f}.pth"
-            torch.save(model.state_dict(), os.path.join(BEST_MODEL_SAVE_PATH, model_save_name))
-            print(f"发现更优模型 (AUC: {best_val_auc:.4f})，已保存至 {model_save_name}")
-
-    print("\n--- 所有训练轮次结束 ---")
-
-    # --- 4. 最终测试阶段 ---
-    print("\n开始在测试集上进行最终评估...")
-    # 找到之前保存的最佳模型文件
-    best_model_filename = sorted([f for f in os.listdir(BEST_MODEL_SAVE_PATH) if f.endswith(".pth")])[-1]
-    print(f"加载最佳模型: {best_model_filename}")
-    
-    model.load_state_dict(torch.load(os.path.join(BEST_MODEL_SAVE_PATH, best_model_filename)))
-    model.eval()
-    
-    all_preds, all_labels = [], []
-    with torch.no_grad():
-        for images, labels in tqdm(test_loader, desc="测试中"):
-            images = images.to(DEVICE)
-            outputs = model(images)
-            preds = torch.sigmoid(outputs['logits']).cpu().numpy()
-            all_preds.extend(preds)
-            all_labels.extend(labels.numpy())
+        # 只要 AUC 更好，就覆盖保存
+        if val_metrics['auc'] > best_val_auc:
+            best_val_auc = val_metrics['auc']
+            best_val_acc = val_metrics['acc']
+            best_epoch = epoch + 1
             
-    test_auc = roc_auc_score(all_labels, all_preds)
-    test_accuracy = accuracy_score(all_labels, np.round(all_preds))
-    print(f"\n--- 最终测试结果 ---")
-    print(f"测试集 Accuracy: {test_accuracy:.4f}")
-    print(f"测试集 AUC: {test_auc:.4f}")
-    print("--- 项目评估完成 ---")
+            # 删除旧的最佳模型（如果存在）
+            for f in os.listdir(OUTPUT_DIR):
+                if f.startswith("best_model_") and f.endswith(".pth"):
+                    os.remove(os.path.join(OUTPUT_DIR, f))
+            
+            # 保存新的最佳模型
+            model_save_name = f"best_model_epoch{epoch+1}_auc{best_val_auc:.4f}.pth"
+            torch.save(model.state_dict(), os.path.join(OUTPUT_DIR, model_save_name))
+            logging.info(f"*** 发现新最佳模型 (AUC: {best_val_auc:.4f})，已保存 ***")
 
+    # --- 4. 训练结束与最终评估 ---
+    total_time = time.time() - start_time
+    total_time_str = str(datetime.timedelta(seconds=int(total_time)))
+    logging.info(f"\n--- 训练结束。总耗时: {total_time_str} ---")
+    
+    # 在测试集上评估最佳模型
+    logging.info("开始在测试集上评估最佳模型...")
+    best_model_files = [f for f in os.listdir(OUTPUT_DIR) if f.startswith("best_model_") and f.endswith(".pth")]
+    if best_model_files:
+        best_model_path = os.path.join(OUTPUT_DIR, best_model_files[0])
+        model.load_state_dict(torch.load(best_model_path))
+        
+        model.eval()
+        test_preds, test_labels = [], []
+        with torch.no_grad():
+            for images, labels in tqdm(test_loader, desc="Testing"):
+                images = images.to(DEVICE)
+                outputs = model(images)
+                preds = torch.sigmoid(outputs['logits']).cpu().numpy()
+                test_preds.extend(preds)
+                test_labels.extend(labels.numpy())
+        
+        test_metrics = calculate_metrics(np.array(test_labels), np.array(test_preds))
+        logging.info(f"测试集最终结果 -> AUC: {test_metrics['auc']:.4f}, Acc: {test_metrics['acc']:.4f}, F1: {test_metrics['f1']:.4f}")
+    else:
+        logging.warning("未找到最佳模型文件，跳过测试集评估。")
+        test_metrics = {"auc": 0, "acc": 0}
+
+    # --- 5. 生成报告与重命名文件夹 ---
+    
+    # 写入 train_info.txt
+    info_file = os.path.join(OUTPUT_DIR, "train_info.txt")
+    with open(info_file, "w") as f:
+        f.write(f"Dataset: {DATASET_NAME}\n")
+        f.write(f"Date: {date_str}\n")
+        f.write(f"Run ID: {run_id}\n")
+        f.write(f"Total Time: {total_time_str}\n")
+        f.write(f"Device: {DEVICE}\n")
+        f.write("-" * 30 + "\n")
+        f.write(f"Hyperparameters:\n")
+        f.write(f"  Epochs: {EPOCHS}\n")
+        f.write(f"  Batch Size: {BATCH_SIZE}\n")
+        f.write(f"  Learning Rate: {LEARNING_RATE}\n")
+        f.write(f"  Lambda Orth: {LAMBDA_ORTH}\n")
+        f.write("-" * 30 + "\n")
+        f.write(f"Best Validation Results (Epoch {best_epoch}):\n")
+        f.write(f"  AUC: {best_val_auc:.4f}\n")
+        f.write(f"  Accuracy: {best_val_acc:.4f}\n")
+        if best_model_files:
+             f.write(f"Test Set Results:\n")
+             f.write(f"  AUC: {test_metrics['auc']:.4f}\n")
+             f.write(f"  Accuracy: {test_metrics['acc']:.4f}\n")
+             f.write(f"  F1: {test_metrics['f1']:.4f}\n")
+
+    # 重命名结果文件夹
+    # 格式: 数据集名_AUC{XX}_ACC{XX}_{日期}_{序号}
+    # 序号使用 run_id 的后半部分 (时间)
+    final_folder_name = f"{DATASET_NAME}_AUC{best_val_auc:.4f}_ACC{best_val_acc:.4f}_{run_id}"
+    FINAL_OUTPUT_DIR = os.path.join(RESULTS_ROOT, final_folder_name)
+    
+    try:
+        os.rename(OUTPUT_DIR, FINAL_OUTPUT_DIR)
+        logging.info(f"结果文件夹已重命名为: {FINAL_OUTPUT_DIR}")
+    except Exception as e:
+        logging.error(f"重命名文件夹失败: {e}")
+
+    logging.info("--- 任务全部完成 ---")
 
 if __name__ == '__main__':
     run()

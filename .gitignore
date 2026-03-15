@@ -17,7 +17,9 @@ datasets/*
 !datasets/单独下载数据集.txt
 
 # 忽略所有训练结果和模型
-results/
+# results/
+results/**/*.pth
+
 
 # 仅保留pretrained_models目录
 pretrained_models/*

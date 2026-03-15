@@ -1,0 +1,5 @@
+dataset-A_AUC0.9852_ACC0.9620_03-15-143022/
+├── best_model_epoch25_auc0.9852.pth  (最优模型)
+├── train.log                         (完整日志)
+├── training_metrics.csv              (训练曲线数据)
+└── train_info.txt                    (包含超参数、数据集信息、最终指标汇总)
