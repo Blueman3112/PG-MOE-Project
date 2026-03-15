@@ -19,6 +19,8 @@ datasets/*
 # 忽略所有训练结果和模型
 # results/
 results/**/*.pth
+results/nohup_launch.log
+
 
 
 # 仅保留pretrained_models目录
