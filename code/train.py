@@ -8,6 +8,7 @@ import csv
 import shutil
 import sys
 import os
+import argparse
 from tqdm import tqdm
 import numpy as np
 from sklearn.metrics import roc_auc_score, accuracy_score, f1_score, precision_score, recall_score
@@ -46,22 +47,42 @@ def calculate_metrics(labels, preds_prob):
         "recall": recall
     }
 
+def get_args():
+    parser = argparse.ArgumentParser(description="PG-MoE Training Script")
+    
+    # 数据集配置
+    parser.add_argument("--dataset", type=str, default="dataset-A", help="Name of the dataset (folder name in datasets/)")
+    parser.add_argument("--data_root", type=str, default="./datasets", help="Root directory for datasets")
+    
+    # 训练超参数
+    parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
+    parser.add_argument("--epochs", type=int, default=20, help="Number of training epochs")
+    parser.add_argument("--batch_size", type=int, default=32, help="Batch size")
+    parser.add_argument("--lambda_orth", type=float, default=0.05, help="Weight for orthogonal loss")
+    parser.add_argument("--num_workers", type=int, default=4, help="Number of data loading workers")
+    
+    # 结果保存路径
+    parser.add_argument("--results_dir", type=str, default="./results", help="Directory to save results")
+    
+    return parser.parse_args()
+
 def run():
+    args = get_args()
+    
     # --- 0. 基础配置与目录初始化 ---
     start_time = time.time()
     
     # 超参数
     DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-    DATASET_ROOT = "./datasets"
-    DATASET_NAME = "dataset-A" # 默认数据集名称，可修改
-    DATASET_PATH = os.path.join(DATASET_ROOT, DATASET_NAME)
+    DATASET_NAME = args.dataset
+    DATASET_PATH = os.path.join(args.data_root, DATASET_NAME)
     
-    BATCH_SIZE = 32
-    LEARNING_RATE = 1e-4
-    EPOCHS = 20
-    # EPOCHS = 30 # 增加到30轮
-    LAMBDA_ORTH = 0.05
-    NUM_WORKERS = 4
+    BATCH_SIZE = args.batch_size
+    LEARNING_RATE = args.lr
+    EPOCHS = args.epochs
+    LAMBDA_ORTH = args.lambda_orth
+    NUM_WORKERS = args.num_workers
+    RESULTS_ROOT = args.results_dir
     
     # 获取当前日期和时间，生成唯一ID
     now = datetime.datetime.now()
@@ -70,8 +91,6 @@ def run():
     run_id = f"{date_str}-{time_str}"
     
     # 初始结果目录 (临时名称，最后会重命名)
-    # 格式: results/Temp_Dataset-A_03-15-120000
-    RESULTS_ROOT = "./results"
     if not os.path.exists(RESULTS_ROOT):
         os.makedirs(RESULTS_ROOT)
         
@@ -85,6 +104,7 @@ def run():
     logging.info(f"--- 开始训练任务: {run_id} ---")
     logging.info(f"使用设备: {DEVICE}")
     logging.info(f"结果输出目录: {OUTPUT_DIR}")
+    logging.info(f"配置参数: {args}")
 
     # --- 1. 数据准备 ---
     if not os.path.exists(DATASET_PATH):
@@ -104,6 +124,10 @@ def run():
                       list(model.router.parameters()) + \
                       list(model.classifier.parameters())
     optimizer = torch.optim.AdamW(params_to_train, lr=LEARNING_RATE)
+    
+    # --- 新增: 学习率调度器 (Cosine Annealing) ---
+    # T_max 设置为 EPOCHS，让学习率在整个训练过程中从 LR 降到 0 (或 eta_min)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=EPOCHS, eta_min=1e-6)
 
     # --- 3. 训练循环 ---
     best_val_auc = 0.0
@@ -112,7 +136,7 @@ def run():
     
     # CSV 记录文件
     csv_file = os.path.join(OUTPUT_DIR, "training_metrics.csv")
-    csv_headers = ["epoch", "train_loss", "train_bce", "train_orth", 
+    csv_headers = ["epoch", "lr", "train_loss", "train_bce", "train_orth", 
                    "val_loss", "val_acc", "val_auc", "val_f1", "val_precision", "val_recall", "inference_fps"]
     
     with open(csv_file, mode='w', newline='') as f:
@@ -123,7 +147,8 @@ def run():
     
     for epoch in range(EPOCHS):
         epoch_start_time = time.time()
-        logging.info(f"\n--- Epoch {epoch+1}/{EPOCHS} ---")
+        current_lr = optimizer.param_groups[0]['lr']
+        logging.info(f"\n--- Epoch {epoch+1}/{EPOCHS} (LR: {current_lr:.6f}) ---")
         
         # --- 训练阶段 ---
         model.train()
@@ -136,11 +161,19 @@ def run():
             outputs = model(images)
             loss, l_bce, l_orth = criterion(outputs, labels)
             loss.backward()
+            
+            # --- 新增: 梯度裁剪 (Gradient Clipping) ---
+            # 阈值通常设为 1.0 或 5.0，防止梯度爆炸
+            torch.nn.utils.clip_grad_norm_(params_to_train, max_norm=1.0)
+            
             optimizer.step()
             
             train_loss_total += loss.item()
             train_loss_bce += l_bce.item()
             train_loss_orth += l_orth.item()
+        
+        # 更新学习率
+        scheduler.step()
         
         avg_train_loss = train_loss_total / len(train_loader)
         avg_train_bce = train_loss_bce / len(train_loader)
@@ -177,12 +210,18 @@ def run():
         
         logging.info(f"Val Loss: {avg_val_loss:.4f} | FPS: {fps:.2f}")
         logging.info(f"Val Metrics -> AUC: {val_metrics['auc']:.4f}, Acc: {val_metrics['acc']:.4f}, F1: {val_metrics['f1']:.4f}")
+        
+        # 打印真实显存峰值
+        if DEVICE == "cuda":
+            max_memory = torch.cuda.max_memory_allocated(DEVICE) / (1024 ** 3)
+            logging.info(f"当前 Epoch 真实显存峰值占用: {max_memory:.2f} GB")
 
         # 写入 CSV
         with open(csv_file, mode='a', newline='') as f:
             writer = csv.writer(f)
             writer.writerow([
                 epoch + 1, 
+                f"{current_lr:.6f}",
                 f"{avg_train_loss:.4f}", f"{avg_train_bce:.4f}", f"{avg_train_orth:.4f}",
                 f"{avg_val_loss:.4f}", 
                 f"{val_metrics['acc']:.4f}", f"{val_metrics['auc']:.4f}", f"{val_metrics['f1']:.4f}", 
@@ -251,6 +290,8 @@ def run():
         f.write(f"  Batch Size: {BATCH_SIZE}\n")
         f.write(f"  Learning Rate: {LEARNING_RATE}\n")
         f.write(f"  Lambda Orth: {LAMBDA_ORTH}\n")
+        f.write(f"  LR Scheduler: CosineAnnealingLR (eta_min=1e-6)\n")
+        f.write(f"  Gradient Clipping: Max Norm = 1.0\n")
         f.write("-" * 30 + "\n")
         f.write(f"Best Validation Results (Epoch {best_epoch}):\n")
         f.write(f"  AUC: {best_val_auc:.4f}\n")
