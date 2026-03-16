@@ -262,7 +262,11 @@ def run():
     # 在测试集上评估最佳模型
     logging.info("开始在测试集上评估最佳模型...")
     # 查找符合新命名格式的最佳模型
-    best_model_files = [f for f in os.listdir(OUTPUT_DIR) if f.startswith(f"{DATASET_NAME}__epoch") and f.endswith(".pth")]
+    if DATASET_NAME == "dataset-A":
+        tem = "A"
+    else:
+        tem = "B"
+    best_model_files = [f for f in os.listdir(OUTPUT_DIR) if f.startswith(f"{tem}_epoch") and f.endswith(".pth")]
     if best_model_files:
         best_model_path = os.path.join(OUTPUT_DIR, best_model_files[0])
         model.load_state_dict(torch.load(best_model_path))
@@ -279,8 +283,27 @@ def run():
         
         test_metrics = calculate_metrics(np.array(test_labels), np.array(test_preds))
         logging.info(f"测试集最终结果 -> AUC: {test_metrics['auc']:.4f}, Acc: {test_metrics['acc']:.4f}, F1: {test_metrics['f1']:.4f}")
+        
+        # 将测试集结果追加到 CSV 文件
+        with open(csv_file, mode='a', newline='') as f:
+            writer = csv.writer(f)
+            # 在 epoch 列填入 "Test_Set"，其他训练相关列留空，最后填入测试集指标
+            # 列顺序: epoch,lr,train_loss,train_bce,train_orth,val_loss,val_acc,val_auc,val_f1,val_precision,val_recall,inference_fps
+            writer.writerow([
+                "Test_Set", 
+                "-", "-", "-", "-", 
+                "-", # val_loss (test loss not calculated here, placeholder)
+                f"{test_metrics['acc']:.4f}", 
+                f"{test_metrics['auc']:.4f}", 
+                f"{test_metrics['f1']:.4f}", 
+                f"{test_metrics['precision']:.4f}", 
+                f"{test_metrics['recall']:.4f}",
+                "-" # inference_fps
+            ])
+            
     else:
         logging.warning("未找到最佳模型文件，跳过测试集评估。")
+
         test_metrics = {"auc": 0, "acc": 0}
 
     # --- 5. 生成报告与重命名文件夹 ---
@@ -310,6 +333,8 @@ def run():
              f.write(f"  AUC: {test_metrics['auc']:.4f}\n")
              f.write(f"  Accuracy: {test_metrics['acc']:.4f}\n")
              f.write(f"  F1: {test_metrics['f1']:.4f}\n")
+             f.write(f"  Precision: {test_metrics['precision']:.4f}\n")
+             f.write(f"  Recall: {test_metrics['recall']:.4f}\n")
 
     # 重命名结果文件夹
     # 格式: 数据集名_AUC{XX}_ACC{XX}_{日期}_{序号}
