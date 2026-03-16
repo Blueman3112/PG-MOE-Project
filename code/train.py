@@ -245,7 +245,7 @@ def run():
                     os.remove(os.path.join(OUTPUT_DIR, f))
             
             # 保存新的最佳模型
-            # 格式: dataset-X_epoch_AUC_ACC_Month-Date-序号
+            # 格式: X_epoch_ACC_Month-Date-序号
             if DATASET_NAME == "dataset-A":
                 tem = "A"
             else:
