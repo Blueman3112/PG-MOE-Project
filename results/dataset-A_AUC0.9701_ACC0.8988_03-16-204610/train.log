@@ -1,0 +1,26 @@
+2026-03-16 20:46:10,851 [INFO] --- 开始训练任务: 03-16-204610 ---
+2026-03-16 20:46:10,851 [INFO] 使用设备: cuda
+2026-03-16 20:46:10,851 [INFO] 结果输出目录: ./results/Temp_dataset-A_03-16-204610
+2026-03-16 20:46:10,851 [INFO] 配置参数: Namespace(dataset='dataset-A', data_root='./datasets', lr=0.0001, epochs=1, batch_size=32, lambda_orth=0.05, num_workers=4, results_dir='./results')
+2026-03-16 20:46:10,851 [INFO] 加载数据集: ./datasets/dataset-A
+2026-03-16 20:46:10,869 [INFO] Parsing model identifier. Schema: None, Identifier: ViT-L-14
+2026-03-16 20:46:10,870 [INFO] Loaded built-in ViT-L-14 model config.
+2026-03-16 20:46:10,870 [INFO] `pretrained` specifies file path: ./pretrained_models/open_clip_pytorch_model.bin
+2026-03-16 20:46:10,870 [INFO] Instantiating model architecture: CLIP
+2026-03-16 20:46:14,253 [INFO] Loading full pretrained weights from: ./pretrained_models/open_clip_pytorch_model.bin
+2026-03-16 20:46:16,341 [INFO] Final image preprocessing configuration set: {'size': (224, 224), 'mode': 'RGB', 'mean': (0.48145466, 0.4578275, 0.40821073), 'std': (0.26862954, 0.26130258, 0.27577711), 'interpolation': 'bicubic', 'resize_mode': 'shortest', 'fill_color': 0}
+2026-03-16 20:46:16,342 [INFO] Model ViT-L-14 creation process complete.
+2026-03-16 20:46:16,959 [INFO] 开始训练...
+2026-03-16 20:46:16,959 [INFO] 
+--- Epoch 1/1 (LR: 0.000100) ---
+2026-03-16 20:48:30,670 [INFO] Train Loss -> Total: 0.4392, BCE: 0.4388, Orth: 0.0079
+2026-03-16 20:48:41,905 [INFO] Val Loss: 0.2343 | FPS: 88.92
+2026-03-16 20:48:41,905 [INFO] Val Metrics -> AUC: 0.9701, Acc: 0.8988, F1: 0.8993
+2026-03-16 20:48:41,905 [INFO] 当前 Epoch 真实显存峰值占用: 2.50 GB
+2026-03-16 20:48:43,865 [INFO] *** 发现新最佳模型 (AUC: 0.9701)，已保存 ***
+2026-03-16 20:48:43,865 [INFO] 
+--- 训练结束。总耗时: 0:02:33 ---
+2026-03-16 20:48:43,865 [INFO] 开始在测试集上评估最佳模型...
+2026-03-16 20:48:43,865 [WARNING] 未找到最佳模型文件，跳过测试集评估。
+2026-03-16 20:48:43,865 [INFO] 结果文件夹已重命名为: ./results/dataset-A_AUC0.9701_ACC0.8988_03-16-204610
+2026-03-16 20:48:43,865 [INFO] --- 任务全部完成 ---

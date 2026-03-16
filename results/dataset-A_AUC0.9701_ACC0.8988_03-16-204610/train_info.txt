@@ -1,0 +1,17 @@
+Dataset: dataset-A
+Date: 03-16
+Run ID: 03-16-204610
+Total Time: 0:02:33
+Device: cuda
+------------------------------
+Hyperparameters:
+  Epochs: 1
+  Batch Size: 32
+  Learning Rate: 0.0001
+  Lambda Orth: 0.05
+  LR Scheduler: CosineAnnealingLR (eta_min=1e-6)
+  Gradient Clipping: Max Norm = 1.0
+------------------------------
+Best Validation Results (Epoch 1):
+  AUC: 0.9701
+  Accuracy: 0.8988

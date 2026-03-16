@@ -1,0 +1,2 @@
+epoch,lr,train_loss,train_bce,train_orth,val_loss,val_acc,val_auc,val_f1,val_precision,val_recall,inference_fps
+1,0.000100,0.4392,0.4388,0.0079,0.2343,0.8988,0.9701,0.8993,0.8966,0.9020,88.92
