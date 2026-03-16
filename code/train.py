@@ -238,11 +238,19 @@ def run():
             
             # 删除旧的最佳模型（如果存在）
             for f in os.listdir(OUTPUT_DIR):
-                if f.startswith("best_model_") and f.endswith(".pth"):
+                if f.startswith(f"{DATASET_NAME}__epoch") and f.endswith(".pth"):
+                    os.remove(os.path.join(OUTPUT_DIR, f))
+                # 兼容旧的命名格式，防止残留
+                elif f.startswith("best_model_") and f.endswith(".pth"):
                     os.remove(os.path.join(OUTPUT_DIR, f))
             
             # 保存新的最佳模型
-            model_save_name = f"best_model_epoch{epoch+1}_auc{best_val_auc:.4f}.pth"
+            # 格式: dataset-X_epoch_AUC_ACC_Month-Date-序号
+            if DATASET_NAME == "dataset-A":
+                tem = "A"
+            else:
+                tem = "B"
+            model_save_name = f"{tem}_epoch{epoch+1}_ACC{best_val_acc:.4f}_{run_id}.pth"
             torch.save(model.state_dict(), os.path.join(OUTPUT_DIR, model_save_name))
             logging.info(f"*** 发现新最佳模型 (AUC: {best_val_auc:.4f})，已保存 ***")
 
@@ -253,7 +261,8 @@ def run():
     
     # 在测试集上评估最佳模型
     logging.info("开始在测试集上评估最佳模型...")
-    best_model_files = [f for f in os.listdir(OUTPUT_DIR) if f.startswith("best_model_") and f.endswith(".pth")]
+    # 查找符合新命名格式的最佳模型
+    best_model_files = [f for f in os.listdir(OUTPUT_DIR) if f.startswith(f"{DATASET_NAME}__epoch") and f.endswith(".pth")]
     if best_model_files:
         best_model_path = os.path.join(OUTPUT_DIR, best_model_files[0])
         model.load_state_dict(torch.load(best_model_path))
