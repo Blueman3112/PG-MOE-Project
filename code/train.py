@@ -133,6 +133,9 @@ def run():
     best_val_auc = 0.0
     best_val_acc = 0.0
     best_epoch = 0
+    epochs_no_improve = 0 # 用于 Early Stopping 的计数器
+    # patience = 5 # Early Stopping 的耐心值
+    patience = 20
     
     # CSV 记录文件
     csv_file = os.path.join(OUTPUT_DIR, "training_metrics.csv")
@@ -232,6 +235,12 @@ def run():
         # --- 保存最佳模型 ---
         # 只要 AUC 更好，就覆盖保存
         if val_metrics['auc'] > best_val_auc:
+            # 只有当 AUC 提升超过阈值 (1e-4) 时，才认为是有效提升，重置 patience
+            if val_metrics['auc'] - best_val_auc > 1e-4:
+                epochs_no_improve = 0
+            else:
+                epochs_no_improve += 1
+            
             best_val_auc = val_metrics['auc']
             best_val_acc = val_metrics['acc']
             best_epoch = epoch + 1
@@ -253,6 +262,53 @@ def run():
             model_save_name = f"{tem}_epoch{epoch+1}_ACC{best_val_acc:.4f}_{run_id}.pth"
             torch.save(model.state_dict(), os.path.join(OUTPUT_DIR, model_save_name))
             logging.info(f"*** 发现新最佳模型 (AUC: {best_val_auc:.4f})，已保存 ***")
+        else:
+            epochs_no_improve += 1
+            logging.info(f"验证集 AUC 未提升 (当前: {val_metrics['auc']:.4f}, 最佳: {best_val_auc:.4f}). 已连续 {epochs_no_improve} 轮未提升。")
+
+        # --- Early Stopping 检查 ---
+        if epochs_no_improve >= patience:
+            logging.info(f"早停触发 (Early Stopping)! 连续 {patience} 轮验证集 AUC 未显著提升。停止训练。")
+            break
+            
+        # --- 后期冻结 Backbone (Freeze Backbone) ---
+        # 在 Epoch 10 之后冻结 CLIP 的视觉编码器，只训练 Head
+        if epoch + 1 == 10:
+            logging.info(">>> 触发后期冻结策略: 冻结 CLIP Visual Encoder，仅训练 Experts 和 Heads <<<")
+            # 冻结 CLIP 内部参数 (虽然初始化时已经冻结了 CLIP，但这里再次确认并冻结可能被解冻的部分，或者作为显式逻辑)
+            # 注意：我们的 PGMoE 设计中，spatial_expert 和 frequency_expert 是独立的模块，不是 CLIP 的一部分
+            # 这里的 visual_encoder 指的是 model.clip.visual
+            # 但我们需要小心，不要冻结了 expert。
+            # 根据代码，CLIP 本身就是冻结的 (requires_grad=False)
+            # 用户意图可能是指：如果之前解冻了 CLIP (微调)，现在冻结它。
+            # 但现有代码 CLIP 一直是冻结的。
+            # 用户的意图可能是：只训练 classifier 和 router，冻结 expert？
+            # "只训练 head，可减少震荡" -> 通常指冻结特征提取部分。
+            # 我们的特征提取部分是 CLIP (已冻结) + Experts (未冻结)。
+            # 所以这里应该是冻结 Experts，只训练 Router 和 Classifier。
+            
+            # 修正理解：用户代码示例 `for p in visual_encoder.parameters(): p.requires_grad = False`
+            # 在 PGMoE 中，Experts 充当了 Adapter 的角色。
+            # 让我们冻结 Experts，只让 Router 和 Classifier 继续微调。
+            
+            logging.info("冻结 Spatial Expert 和 Frequency Expert...")
+            for param in model.spatial_expert.parameters():
+                param.requires_grad = False
+            for param in model.frequency_expert.parameters():
+                param.requires_grad = False
+                
+            # 重新构建优化器，只包含剩余的需更新参数
+            params_to_train = list(model.router.parameters()) + \
+                              list(model.classifier.parameters())
+            
+            # 注意：重建优化器会丢失之前的动量信息，但这在 Fine-tuning 后期通常是可以接受的，或者我们可以手动将 param_group 的 lr 设为 0
+            # 这里选择重建优化器，并适当调小 LR
+            NEW_LR = current_lr * 0.1 # 降低学习率
+            optimizer = torch.optim.AdamW(params_to_train, lr=NEW_LR)
+            # 重置 Scheduler
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=EPOCHS - epoch - 1, eta_min=1e-6)
+            logging.info(f"优化器已重建，仅训练 Head。学习率调整为: {NEW_LR}")
+
 
     # --- 4. 训练结束与最终评估 ---
     total_time = time.time() - start_time
