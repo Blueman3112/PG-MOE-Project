@@ -134,7 +134,7 @@ def run():
     best_val_acc = 0.0
     best_epoch = 0
     epochs_no_improve = 0 # 用于 Early Stopping 的计数器
-    # patience = 5 # Early Stopping 的耐心值
+    #patience = 5 # Early Stopping 的耐心值
     patience = 20
     
     # CSV 记录文件
@@ -245,20 +245,27 @@ def run():
             best_val_acc = val_metrics['acc']
             best_epoch = epoch + 1
             
-            # 删除旧的最佳模型（如果存在）
-            for f in os.listdir(OUTPUT_DIR):
-                if f.startswith(f"{DATASET_NAME}__epoch") and f.endswith(".pth"):
-                    os.remove(os.path.join(OUTPUT_DIR, f))
-                # 兼容旧的命名格式，防止残留
-                elif f.startswith("best_model_") and f.endswith(".pth"):
-                    os.remove(os.path.join(OUTPUT_DIR, f))
-            
-            # 保存新的最佳模型
-            # 格式: X_epoch_ACC_Month-Date-序号
+            # 确定当前数据集的简写前缀
             if DATASET_NAME == "dataset-A":
                 tem = "A"
             else:
                 tem = "B"
+                
+            # 删除旧的最佳模型（如果存在）
+            # 统一删除当前数据集下所有以 tem_epoch 开头的 .pth 文件
+            # 同时也兼容清理旧格式的 best_model_ 和 dataset-X__epoch
+            for f in os.listdir(OUTPUT_DIR):
+                if f.endswith(".pth"):
+                    if f.startswith(f"{tem}_epoch") or \
+                       f.startswith(f"{DATASET_NAME}__epoch") or \
+                       f.startswith("best_model_"):
+                        try:
+                            os.remove(os.path.join(OUTPUT_DIR, f))
+                        except OSError as e:
+                            logging.warning(f"删除旧模型失败: {f}, 错误: {e}")
+            
+            # 保存新的最佳模型
+            # 格式: X_epoch_ACC_Month-Date-序号
             model_save_name = f"{tem}_epoch{epoch+1}_ACC{best_val_acc:.4f}_{run_id}.pth"
             torch.save(model.state_dict(), os.path.join(OUTPUT_DIR, model_save_name))
             logging.info(f"*** 发现新最佳模型 (AUC: {best_val_auc:.4f})，已保存 ***")
