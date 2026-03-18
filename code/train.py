@@ -134,8 +134,13 @@ def run():
     best_val_acc = 0.0
     best_epoch = 0
     epochs_no_improve = 0 # 用于 Early Stopping 的计数器
-    #patience = 5 # Early Stopping 的耐心值
+    # patience = 5 # Early Stopping 的耐心值
     patience = 20
+    # patience = 40
+
+
+
+
     
     # CSV 记录文件
     csv_file = os.path.join(OUTPUT_DIR, "training_metrics.csv")
@@ -179,9 +184,9 @@ def run():
         scheduler.step()
         
         avg_train_loss = train_loss_total / len(train_loader)
-        avg_train_bce = train_loss_bce / len(train_loader)
+        avg_train_focal = train_loss_bce / len(train_loader) # 变量名虽然叫 train_loss_bce, 但实际存的是 focal loss
         avg_train_orth = train_loss_orth / len(train_loader)
-        logging.info(f"Train Loss -> Total: {avg_train_loss:.4f}, BCE: {avg_train_bce:.4f}, Orth: {avg_train_orth:.4f}")
+        logging.info(f"Train Loss -> Total: {avg_train_loss:.4f}, Focal: {avg_train_focal:.4f}, Orth: {avg_train_orth:.4f}")
 
         # --- 验证阶段 ---
         model.eval()
