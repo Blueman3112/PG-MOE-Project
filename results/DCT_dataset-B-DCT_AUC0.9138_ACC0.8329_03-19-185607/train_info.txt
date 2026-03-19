@@ -1,0 +1,9 @@
+Dataset: dataset-B-DCT
+Method: DCT Frequency Analysis (ResNet18 backbone, 1-channel input)
+------------------------------
+Best Validation Results (Epoch 35):
+  AUC: 0.9138
+  Accuracy: 0.8329
+Test Set Results:
+  AUC: 0.9164
+  Accuracy: 0.8433
