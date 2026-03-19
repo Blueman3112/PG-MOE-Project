@@ -1,0 +1,23 @@
+Dataset: dataset-B-LGrad
+Date: 03-19
+Run ID: 03-19-133847
+Total Time: 0:52:31
+Device: cuda
+Method: LGrad (ResNet50 backbone)
+------------------------------
+Hyperparameters:
+  Epochs: 20
+  Batch Size: 128
+  Learning Rate: 0.0001
+  LR Scheduler: CosineAnnealingLR (eta_min=1e-6)
+  Gradient Clipping: Max Norm = 1.0
+------------------------------
+Best Validation Results (Epoch 19):
+  AUC: 0.9877
+  Accuracy: 0.9414
+Test Set Results:
+  AUC: 0.9864
+  Accuracy: 0.9417
+  F1: 0.9429
+  Precision: 0.9475
+  Recall: 0.9384
