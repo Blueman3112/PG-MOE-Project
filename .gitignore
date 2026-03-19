@@ -21,7 +21,7 @@ datasets/*
 results/**/*.pth
 results/nohup_launch.log
 
-
+baseline/**/*.pth
 
 # 仅保留pretrained_models目录
 pretrained_models/*
