@@ -1,1 +1,5 @@
+# 从恒源云服务器下载
 oss cp oss://datasets/open_clip_pytorch_model.bin.zip /hy-tmp/PG-MOE-Project/pretrained_models/open_clip_pytorch_model.bin
+
+# 从huggingface镜像站下载
+wget -O /hy-tmp/PG-MOE-Project/pretrained_models/open_clip_pytorch_model.bin "https://hf-mirror.com/laion/CLIP-ViT-L-14-laion2B-s32B-b82K/resolve/main/open_clip_pytorch_model.bin"
