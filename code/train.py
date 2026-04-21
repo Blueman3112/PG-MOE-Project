@@ -230,7 +230,7 @@ def run():
             writer.writerow([
                 epoch + 1, 
                 f"{current_lr:.6f}",
-                f"{avg_train_loss:.4f}", f"{avg_train_bce:.4f}", f"{avg_train_orth:.4f}",
+                f"{avg_train_loss:.4f}", f"{avg_train_focal:.4f}", f"{avg_train_orth:.4f}",
                 f"{avg_val_loss:.4f}", 
                 f"{val_metrics['acc']:.4f}", f"{val_metrics['auc']:.4f}", f"{val_metrics['f1']:.4f}", 
                 f"{val_metrics['precision']:.4f}", f"{val_metrics['recall']:.4f}",
