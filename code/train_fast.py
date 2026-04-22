@@ -41,8 +41,9 @@ def run():
     # 获取当前日期和时间
     now = datetime.datetime.now()
     run_id = f"{now.strftime('%m-%d-%H%M%S')}"
+    date_str = now.strftime('%Y-%m-%d %H:%M:%S')
     
-    # 构建包含融合类型标识的输出目录名
+    # 构建包含融合类型标识的临时输出目录名
     save_prefix = f"Fast_{args.fusion_type}"
     if args.fusion_type == 'concat':
         args.lambda_orth = 0.0 # 强制如果是拼接网络的话，不需要正交损失
@@ -55,7 +56,7 @@ def run():
     logging.info(f"--- >> 极速离线训练模式 << ---")
     logging.info(f"任务: {run_id}")
     logging.info(f"融合类型 Fusion Type: {args.fusion_type.upper()}")
-    logging.info(f"结果输出目录: {OUTPUT_DIR}")
+    logging.info(f"结果临时目录: {OUTPUT_DIR}")
     logging.info(f"配置参数: {args}")
 
     if not os.path.exists(FEATURES_PATH):
@@ -76,6 +77,7 @@ def run():
 
     best_val_auc = 0.0
     best_val_acc = 0.0
+    best_epoch = 0
     epochs_no_improve = 0
     patience = 5 # 极速模式下允许更快早停
 
@@ -97,7 +99,6 @@ def run():
         model.train()
         train_loss_total, train_loss_focal, train_loss_orth = 0, 0, 0
         
-        # tqdm 就不显示描述了，因为快到闪眼
         loader_bar = tqdm(train_loader, desc=f"Ep {epoch+1} Train", leave=False)
         for patch_tokens, class_tokens, labels in loader_bar:
             patch_tokens = patch_tokens.to(DEVICE)
@@ -165,6 +166,7 @@ def run():
                 f"{fps:.2f}"
             ])
 
+        # 保存最佳模型逻辑（与原版对齐）
         if val_metrics['auc'] > best_val_auc:
             if val_metrics['auc'] - best_val_auc > 1e-4:
                 epochs_no_improve = 0
@@ -175,8 +177,18 @@ def run():
             best_val_acc = val_metrics['acc']
             best_epoch = epoch + 1
             
-            torch.save(model.state_dict(), os.path.join(OUTPUT_DIR, "best_model.pth"))
-            logging.info(f"*** 发现新最佳极速模型 (AUC: {best_val_auc:.4f})，已保存 ***")
+            # 删除旧的最佳模型文件
+            tem = "A" if DATASET_NAME == "dataset-A" else "B"
+            for f_name in os.listdir(OUTPUT_DIR):
+                if f_name.endswith(".pth") and (f_name.startswith(f"{tem}_epoch") or "best_model" in f_name):
+                    try:
+                        os.remove(os.path.join(OUTPUT_DIR, f_name))
+                    except:
+                        pass
+            
+            model_save_name = f"{tem}_epoch{epoch+1}_ACC{best_val_acc:.4f}_{run_id}.pth"
+            torch.save(model.state_dict(), os.path.join(OUTPUT_DIR, model_save_name))
+            logging.info(f"*** 发现新最佳极速模型 (AUC: {best_val_auc:.4f})，已保存为 {model_save_name} ***")
         else:
             epochs_no_improve += 1
             logging.info(f"验证集表现未提升 (Best AUC: {best_val_auc:.4f} at Epoch {best_epoch}). Patience: {epochs_no_improve}/{patience}")
@@ -186,9 +198,87 @@ def run():
             break
 
     total_time = time.time() - start_time
-    logging.info(f"--- 极速训练彻底完成！ ---")
-    logging.info(f"最强 Epoch: {best_epoch}, 最强 AUC: {best_val_auc:.4f}, 对应的 ACC: {best_val_acc:.4f}")
-    logging.info(f"本轮实验总耗时: {total_time/60:.2f} 分钟")
+    total_time_str = str(datetime.timedelta(seconds=int(total_time)))
+    logging.info(f"\n--- 极速训练结束。总耗时: {total_time_str} ({total_time/60:.2f} 分钟) ---")
+    
+    # ---------------- 最终测试集评估 ----------------
+    logging.info("开始在测试集上评估最佳模型...")
+    tem = "A" if DATASET_NAME == "dataset-A" else "B"
+    best_model_files = [f for f in os.listdir(OUTPUT_DIR) if f.startswith(f"{tem}_epoch") and f.endswith(".pth")]
+    
+    if best_model_files:
+        best_model_path = os.path.join(OUTPUT_DIR, best_model_files[0])
+        model.load_state_dict(torch.load(best_model_path))
+        
+        model.eval()
+        test_preds, test_labels = [], []
+        with torch.no_grad():
+            for patch_tokens, class_tokens, labels in tqdm(test_loader, desc="Testing"):
+                patch_tokens = patch_tokens.to(DEVICE)
+                class_tokens = class_tokens.to(DEVICE)
+                labels = labels.to(DEVICE)
+                
+                outputs = model(patch_tokens, class_tokens)
+                preds = torch.sigmoid(outputs['logits']).cpu().numpy()
+                test_preds.extend(preds)
+                test_labels.extend(labels.cpu().numpy())
+                
+        test_metrics = calculate_metrics(np.array(test_labels), np.array(test_preds))
+        logging.info(f"测试集最终结果 -> AUC: {test_metrics['auc']:.4f}, Acc: {test_metrics['acc']:.4f}, F1: {test_metrics['f1']:.4f}")
+        
+        with open(csv_file, mode='a', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                "Test_Set", "-", "-", "-", "-", "-", 
+                f"{test_metrics['acc']:.4f}", f"{test_metrics['auc']:.4f}", f"{test_metrics['f1']:.4f}", 
+                f"{test_metrics['precision']:.4f}", f"{test_metrics['recall']:.4f}", "-"
+            ])
+    else:
+        logging.warning("未找到最佳模型文件，跳过测试集评估。")
+        test_metrics = {"auc": 0, "acc": 0, "f1": 0, "precision": 0, "recall": 0}
+
+    # ---------------- 写入 train_info.txt ----------------
+    info_file = os.path.join(OUTPUT_DIR, "train_info.txt")
+    with open(info_file, "w") as f:
+        f.write(f"Dataset: {DATASET_NAME}\n")
+        f.write(f"Date: {date_str}\n")
+        f.write(f"Run ID: {run_id}\n")
+        f.write(f"Total Time: {total_time_str}\n")
+        f.write(f"Device: {DEVICE}\n")
+        f.write(f"Fast Mode: True (Offline Features)\n")
+        f.write(f"Fusion Type: {args.fusion_type.upper()}\n")
+        f.write("-" * 30 + "\n")
+        f.write(f"Hyperparameters:\n")
+        f.write(f"  Epochs: {args.epochs}\n")
+        f.write(f"  Batch Size: {args.batch_size}\n")
+        f.write(f"  Learning Rate: {args.lr}\n")
+        f.write(f"  Lambda Orth: {args.lambda_orth}\n")
+        f.write(f"  LR Scheduler: CosineAnnealingLR (eta_min=1e-6)\n")
+        f.write(f"  Gradient Clipping: Max Norm = 1.0\n")
+        f.write("-" * 30 + "\n")
+        f.write(f"Best Validation Results (Epoch {best_epoch}):\n")
+        f.write(f"  AUC: {best_val_auc:.4f}\n")
+        f.write(f"  Accuracy: {best_val_acc:.4f}\n")
+        f.write(f"Test Set Results:\n")
+        f.write(f"  AUC: {test_metrics['auc']:.4f}\n")
+        f.write(f"  Accuracy: {test_metrics['acc']:.4f}\n")
+        f.write(f"  F1: {test_metrics['f1']:.4f}\n")
+        f.write(f"  Precision: {test_metrics['precision']:.4f}\n")
+        f.write(f"  Recall: {test_metrics['recall']:.4f}\n")
+
+    # ---------------- 重命名结果文件夹为最终格式 ----------------
+    # 文件夹名为 fast-{原版格式}
+    # 原版格式: {DATASET_NAME}_AUC{auc}_ACC{acc}_{run_id}
+    final_folder_name = f"fast-{DATASET_NAME}_AUC{best_val_auc:.4f}_ACC{best_val_acc:.4f}_{run_id}"
+    FINAL_OUTPUT_DIR = os.path.join(args.results_dir, final_folder_name)
+    
+    try:
+        os.rename(OUTPUT_DIR, FINAL_OUTPUT_DIR)
+        logging.info(f"结果文件夹已重命名为与原框架对齐的最终格式: {FINAL_OUTPUT_DIR}")
+    except Exception as e:
+        logging.error(f"重命名文件夹失败: {e}")
+
+    logging.info("--- 任务全部完成 ---")
 
 if __name__ == "__main__":
     run()
