@@ -33,6 +33,8 @@ code/*-log.txt
 # 忽略 Python 缓存文件
 __pycache__/
 *.pyc
+*.log
+datasets_features/*
 
 # 忽略 Conda/Python 虚拟环境文件夹 (如果创建在项目内)
 pg_moe/

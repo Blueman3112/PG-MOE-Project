@@ -79,7 +79,8 @@ def run():
     best_val_acc = 0.0
     best_epoch = 0
     epochs_no_improve = 0
-    patience = 5 # 极速模式下允许更快早停
+    # patience = 5 # 极速模式下允许更快早停
+    patience = 20
 
     csv_file = os.path.join(OUTPUT_DIR, "training_metrics.csv")
     csv_headers = ["epoch", "lr", "train_loss", "train_focal", "train_orth", 

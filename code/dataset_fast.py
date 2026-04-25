@@ -5,9 +5,9 @@ import os
 class PreextractedFeatureDataset(Dataset):
     def __init__(self, features_path):
         super().__init__()
-        print(f"正在加载离线特征: {features_path} ...")
-        # 直接把它们加载进内存，反正总共就38GB，您的环境有 395GB 闲置内存！
-        data = torch.load(features_path, map_location="cpu")
+        print(f"正在以零拷贝内存映射(mmap)模式加载离线特征: {features_path} ...")
+        # 核心改动：加入 mmap=True，让 36G 的特征文件瞬间加载完毕且几乎不占物理内存！
+        data = torch.load(features_path, map_location="cpu", mmap=True)
         self.patch_tokens = data['patch_tokens']
         self.class_tokens = data['class_token']
         self.labels = data['labels']
