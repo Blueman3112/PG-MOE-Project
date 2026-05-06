@@ -1,0 +1,25 @@
+Dataset: dataset-B
+Date: 2026-05-05 22:29:15
+Run ID: 05-05-222915
+Total Time: 0:36:47
+Device: cuda
+Fast Mode: True (Offline Features, NEW)
+Fusion Type: MOE
+------------------------------
+Hyperparameters:
+  Epochs: 20
+  Batch Size: 512
+  Learning Rate: 0.0001
+  Lambda Orth: 0.1
+  LR Scheduler: CosineAnnealingLR (eta_min=1e-6)
+  Gradient Clipping: Max Norm = 1.0
+------------------------------
+Best Validation Results (Epoch 19):
+  AUC: 0.9992
+  Accuracy: 0.9879
+Test Set Results:
+  AUC: 0.9991
+  Accuracy: 0.9882
+  F1: 0.9884
+  Precision: 0.9865
+  Recall: 0.9904

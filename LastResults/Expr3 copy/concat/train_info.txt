@@ -1,0 +1,25 @@
+Dataset: dataset-B
+Date: 2026-05-05 15:46:58
+Run ID: 05-05-154658
+Total Time: 0:36:47
+Device: cuda
+Fast Mode: True (Offline Features)
+Fusion Type: CONCAT
+------------------------------
+Hyperparameters:
+  Epochs: 20
+  Batch Size: 512
+  Learning Rate: 0.0001
+  Lambda Orth: 0.0
+  LR Scheduler: CosineAnnealingLR (eta_min=1e-6)
+  Gradient Clipping: Max Norm = 1.0
+------------------------------
+Best Validation Results (Epoch 20):
+  AUC: 0.9764
+  Accuracy: 0.9226
+Test Set Results:
+  AUC: 0.9774
+  Accuracy: 0.9248
+  F1: 0.9244
+  Precision: 0.9439
+  Recall: 0.9056

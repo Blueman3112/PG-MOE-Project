@@ -26,6 +26,8 @@ baseline/**/*.pth
 # 仅保留pretrained_models目录
 pretrained_models/*
 !pretrained_models/单独下载CLIP模型.txt
+fonts/*
+!fonts/中文字体文件在oss.txt
 
 # 忽略code目录下的日志文件
 code/*-log.txt
